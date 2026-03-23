@@ -11,10 +11,12 @@ export interface TodoItem {
 }
 
 type AddTodoPayload = Omit<TodoItem, "id" | "completed">;
+type UpdateTodoPayload = Omit<TodoItem, "id" | "completed">;
 
 export interface TodoStore {
   todos: TodoItem[];
   addTodo: (payload: AddTodoPayload) => void;
+  updateTodo: (id: string, payload: UpdateTodoPayload) => void;
   toggleTodo: (id: string) => void;
   deleteTodo: (id: string) => void;
 }
@@ -41,6 +43,19 @@ export const useTodoStore = create<TodoStore>((set) => ({
           completed: false,
         },
       ],
+    })),
+  updateTodo: (id, payload) =>
+    set((state) => ({
+      todos: state.todos.map((todo) =>
+        todo.id === id
+          ? {
+              ...todo,
+              title: payload.title,
+              description: payload.description,
+              priority: payload.priority,
+            }
+          : todo,
+      ),
     })),
   toggleTodo: (id) =>
     set((state) => ({

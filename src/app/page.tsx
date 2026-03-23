@@ -1,8 +1,23 @@
 "use client";
 
-import { Button, Checkbox, Form, Input, Modal, Select, Table, Tag, Typography, Popconfirm  } from "antd";
+import {
+  Button,
+  Card,
+  Checkbox,
+  Form,
+  Input,
+  Modal,
+  Popconfirm,
+  Select,
+  Space,
+  Table,
+  Tag,
+  Typography,
+} from "antd";
 import type { TableProps } from "antd";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useAuthStore } from "../store/authStore";
 import type { TodoItem, TodoPriority } from "../store/todoStore";
 import { useTodoStore } from "../store/todoStore";
 
@@ -18,28 +33,82 @@ const priorityColorMap: Record<TodoPriority, string> = {
   high: "red",
 };
 
+const useMediaQuery = (query: string) => {
+  const [matches, setMatches] = useState(false);
+
+  useEffect(() => {
+    const mql = window.matchMedia(query);
+    const update = () => setMatches(mql.matches);
+
+    update();
+    if (typeof mql.addEventListener === "function") {
+      mql.addEventListener("change", update);
+      return () => mql.removeEventListener("change", update);
+    }
+
+    // Safari/旧浏览器兼容：使用 addListener/removeListener
+    // eslint-disable-next-line deprecation/deprecation
+    mql.addListener(update);
+    // eslint-disable-next-line deprecation/deprecation
+    return () => mql.removeListener(update);
+  }, [query]);
+
+  return matches;
+};
+
 export default function Home() {
-  const { todos, addTodo, toggleTodo, deleteTodo } = useTodoStore();
+  const router = useRouter();
+  const { todos, addTodo, updateTodo, toggleTodo, deleteTodo } = useTodoStore();
+  const { user, isAuthenticated, logout } = useAuthStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
+  const [searchKeyword, setSearchKeyword] = useState("");
   const [todoForm] = Form.useForm<TodoFormValues>();
+  const isMobile = useMediaQuery("(max-width: 767px)");
+  const filteredTodos = useMemo(() => {
+    const keyword = searchKeyword.trim().toLowerCase();
+    if (!keyword) {
+      return todos;
+    }
+
+    return todos.filter((todo) => {
+      const title = todo.title.toLowerCase();
+      const description = todo.description.toLowerCase();
+      return title.includes(keyword) || description.includes(keyword);
+    });
+  }, [searchKeyword, todos]);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      router.replace("/login");
+    }
+  }, [isAuthenticated, router]);
 
   const handleOpenCreateModal = () => {
+    setEditingTodoId(null);
     setIsModalOpen(true);
   };
 
   const handleCancelCreateModal = () => {
+    setEditingTodoId(null);
     setIsModalOpen(false);
   };
 
-  const handleCreateTodo = async () => {
+  const handleSubmitTodo = async () => {
     const values = await todoForm.validateFields();
-
-    addTodo({
+    const payload = {
       title: values.title.trim(),
       description: values.description.trim(),
       priority: values.priority,
-    });
+    };
 
+    if (editingTodoId) {
+      updateTodo(editingTodoId, payload);
+    } else {
+      addTodo(payload);
+    }
+
+    setEditingTodoId(null);
     todoForm.resetFields();
     setIsModalOpen(false);
   };
@@ -50,6 +119,41 @@ export default function Home() {
 
   const handleDeleteTodo = (id: string) => {
     deleteTodo(id);
+  };
+
+  const handleOpenEditModal = (id: string) => {
+    const todo = todos.find((item) => item.id === id);
+    if (!todo) {
+      return;
+    }
+
+    setEditingTodoId(todo.id);
+    setIsModalOpen(true);
+  };
+
+  const handleModalAfterOpenChange = (open: boolean) => {
+    if (!open) {
+      return;
+    }
+
+    if (editingTodoId) {
+      const editingTodo = todos.find((item) => item.id === editingTodoId);
+      if (editingTodo) {
+        todoForm.setFieldsValue({
+          title: editingTodo.title,
+          description: editingTodo.description,
+          priority: editingTodo.priority,
+        });
+      }
+      return;
+    }
+
+    todoForm.resetFields();
+  };
+
+  const handleLogout = () => {
+    logout();
+    router.replace("/login");
   };
 
   const columns: TableProps<TodoItem>["columns"] = useMemo(
@@ -93,19 +197,26 @@ export default function Home() {
         key: "actions",
         align: "center",
         render: (_, record) => (
-          <Popconfirm
-            title="Are you sure to delete this todo?"
-            onConfirm={() => handleDeleteTodo(record.id)}
-            okText="Yes"
-            cancelText="No"
-          >
-            <Button danger>Delete</Button>
-          </Popconfirm>
+          <Space>
+            <Button onClick={() => handleOpenEditModal(record.id)}>Edit</Button>
+            <Popconfirm
+              title="Are you sure to delete this todo?"
+              onConfirm={() => handleDeleteTodo(record.id)}
+              okText="Yes"
+              cancelText="No"
+            >
+              <Button danger>Delete</Button>
+            </Popconfirm>
+          </Space>
         ),
       },
     ],
-    [handleDeleteTodo, handleToggleTodo],
+    [handleDeleteTodo, handleToggleTodo, handleOpenEditModal],
   );
+
+  if (!isAuthenticated) {
+    return null;
+  }
 
   return (
     <main style={{ margin: "0 auto", maxWidth: 1024, padding: "24px 16px" }}>
@@ -121,25 +232,88 @@ export default function Home() {
         <Typography.Title level={2} style={{ margin: 0 }}>
           Todo App MVP
         </Typography.Title>
-        <Button type="primary" onClick={handleOpenCreateModal}>
-          Add Todo
-        </Button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <Input.Search
+            placeholder="Search by title or description"
+            allowClear
+            value={searchKeyword}
+            onChange={(event) => setSearchKeyword(event.target.value)}
+            style={{ width: 260 }}
+          />
+          <Typography.Text>{`欢迎, ${user?.name ?? "User"}`}</Typography.Text>
+          <Button onClick={handleLogout}>Logout</Button>
+          <Button type="primary" onClick={handleOpenCreateModal}>
+            Add Todo
+          </Button>
+        </div>
       </header>
 
-      <Table<TodoItem>
-        rowKey="id"
-        dataSource={todos}
-        columns={columns}
-        pagination={false}
-        locale={{ emptyText: "No todos yet. Click 'Add Todo' to create one." }}
-      />
+      {isMobile ? (
+        <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
+          {filteredTodos.length === 0 ? (
+            <Typography.Text type="secondary">
+              No matching todos found.
+            </Typography.Text>
+          ) : (
+            filteredTodos.map((todo) => (
+              <Card
+                key={todo.id}
+                size="small"
+                title={todo.title}
+                extra={<Tag color={priorityColorMap[todo.priority]}>{todo.priority.toUpperCase()}</Tag>}
+              >
+                <Typography.Paragraph
+                  ellipsis={{ rows: 2, tooltip: todo.description }}
+                  style={{ marginBottom: 12 }}
+                >
+                  {todo.description?.trim() ? todo.description : "-"}
+                </Typography.Paragraph>
+
+                <Space orientation="vertical" size="small" style={{ width: "100%" }}>
+                  <Checkbox checked={todo.completed} onChange={() => handleToggleTodo(todo.id)}>
+                    Completed
+                  </Checkbox>
+
+                  <Button onClick={() => handleOpenEditModal(todo.id)} block>
+                    Edit
+                  </Button>
+
+                  <Popconfirm
+                    title="Are you sure to delete this todo?"
+                    onConfirm={() => handleDeleteTodo(todo.id)}
+                    okText="Yes"
+                    cancelText="No"
+                  >
+                    <Button danger block>
+                      Delete
+                    </Button>
+                  </Popconfirm>
+                </Space>
+              </Card>
+            ))
+          )}
+        </Space>
+      ) : (
+        <Table<TodoItem>
+          rowKey="id"
+          dataSource={filteredTodos}
+          columns={columns}
+          pagination={false}
+          locale={{
+            emptyText: searchKeyword
+              ? "No matching todos found."
+              : "No todos yet. Click 'Add Todo' to create one.",
+          }}
+        />
+      )}
 
       <Modal
-        title="Create Todo"
+        title={editingTodoId ? "Edit Todo" : "Create Todo"}
         open={isModalOpen}
-        onOk={handleCreateTodo}
+        afterOpenChange={handleModalAfterOpenChange}
+        onOk={handleSubmitTodo}
         onCancel={handleCancelCreateModal}
-        okText="Create"
+        okText={editingTodoId ? "Update" : "Create"}
         destroyOnHidden
       >
         <Form<TodoFormValues>
