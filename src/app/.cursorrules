@@ -1,0 +1,8 @@
+- 始终使用 TypeScript strict mode
+- 前端优先使用 Ant Design 组件（Card, Table, Form, Modal, Button, Input 等）
+- 组件使用 functional component + Hooks
+- 状态管理优先使用 Zustand
+- 响应式设计使用 useMediaQuery 判斷移动端（max-width: 767px）
+- 代码风格简洁，优先可读性，避免不必要的注释
+- 先输出 Plan 再执行大任务
+- 后端 API 设计参考 RESTful + NestJS 风格
